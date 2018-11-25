@@ -111,8 +111,10 @@ module.exports = function RenderShader(opts) {
       if (opts.ace_theme) editor.setTheme(opts.ace_theme)
       editor.session.setMode('ace/mode/glsl')
 
-      editor.session.on('change', Changes(editor, ctx, 600, (err, src) => {
+      editor.session.on('change', Changes(editor.session, ctx, 600, (err, src) => {
         syntaxError.set(err && err.message)
+        if (err) {
+        }
         if (!err) {
           const content = Object.assign({}, contentObs())
           content.fragmentShader = src
@@ -140,9 +142,9 @@ module.exports = function RenderShader(opts) {
 
 // -- utils
 
-function Changes(editor, ctx, ms, cb) {
+function Changes(session, ctx, ms, cb) {
   return debounce(ms, ()=>{
-    const v = editor.session.getValue() 
+    const v = session.getValue() 
     try {
       if (ctx.shader) {
         console.log('Updating shader ...')
@@ -150,9 +152,24 @@ function Changes(editor, ctx, ms, cb) {
         console.log('... done')
       }
     } catch(err) {
-      console.error('... failed', err)
-      return cb(err)
+      if (err.constructor.name == 'GLError') {
+        console.error('... failed', err.rawError)
+        const m = err.rawError.match(/ERROR\:\s+([0-9]+)\:([0-9]+)\:\s*(.*)/)
+        if (m) {
+          let [_, column, row, text] = m
+          row = Number(row) - 1
+          column = Number(column)
+          session.setAnnotations([{
+            row, column, text,
+            type: "error" // also warning and information
+          }])
+        }
+        console.log(m)
+        
+        return cb(err)
+      } else throw(err)
     }
+    session.clearAnnotations()
     cb(null, v)
   })
 }
