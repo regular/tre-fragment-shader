@@ -5,7 +5,8 @@ const drawTriangle = require('a-big-triangle')
 const createShader = require('gl-shader')
 const ace = require('brace')
 const setStyle = require('module-styles')('tre-glsl')
-const GLSLMode = require('brace/mode/glsl')
+
+require('brace/mode/glsl')
 
 setStyle(`
   .tre-glsl-editor .active {
@@ -47,16 +48,14 @@ module.exports = function RenderShader(opts) {
     ]
 
     function tab(title, prop) {
-      const session = new ace.EditSession(contentObs()[prop], 'ace/mode/glsl')
-      session.setUndoManager(new ace.UndoManager())
-      //session.setMode('ace/mode/glsl')
+      const session = ace.createEditSession(contentObs()[prop], 'ace/mode/glsl')
 
       function updateShader() {
         if (!ctx.shader) return
         const o = Object.assign({}, contentObs())
         o[prop] = session.getValue()
         ctx.shader.update(o.vertexShader, o.fragmentShader)
-        console.log('shader type', ctx.shader.type)
+        console.log('shader types', ctx.shader.types)
       }
 
       session.on('change', Changes(session, updateShader, 600, (err, src) => {
@@ -123,7 +122,7 @@ module.exports = function RenderShader(opts) {
     if (!fragmentShader || !vertexShader) return
 
     ctx.shader = createShader(ctx.gl, vertexShader, fragmentShader)
-    console.log('shader type', ctx.shader.type)
+    console.log('shader types', ctx.shader.types)
   }
   function disposeNode(ctx) {
     ctx.shader.dispose()
