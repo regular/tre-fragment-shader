@@ -5,9 +5,12 @@ const drawTriangle = require('a-big-triangle')
 const createShader = require('gl-shader')
 const ace = require('brace')
 const setStyle = require('module-styles')('tre-glsl')
-require('brace/mode/glsl')
+const GLSLMode = require('brace/mode/glsl')
 
 setStyle(`
+  .tre-glsl-editor .active {
+    background: blue;
+  }
   .tre-glsl-editor {
     display: grid;
     grid-template-columns: 170px auto;
@@ -22,18 +25,64 @@ setStyle(`
   }
 `)
 
-const vertexShader = `
-precision mediump float;
-attribute vec2 position;
-varying vec2 uv;
-void main() {
-  uv = position.xy;
-  gl_Position = vec4(position.xy, 0.0, 1.0);
-}
-`
 
 module.exports = function RenderShader(opts) {
   opts = opts || {}
+
+  function makeEditor(contentObs, draw, ctx) {
+    const pre = h('pre.editor')
+    const syntaxError = Value('')
+
+    const editor = ace.edit(pre)
+    if (opts.ace_theme) editor.setTheme(opts.ace_theme)
+
+    const activeTab = Value()
+
+    const tab1 = tab('Vertex Shader', 'vertexShader')
+    const tab2 = tab('Fragment Shader', 'fragmentShader')
+    tab1.activate()
+    return [
+      tab1, tab2,
+      pre, syntaxError
+    ]
+
+    function tab(title, prop) {
+      const session = new ace.EditSession(contentObs()[prop], 'ace/mode/glsl')
+      session.setUndoManager(new ace.UndoManager())
+      //session.setMode('ace/mode/glsl')
+
+      function updateShader() {
+        if (!ctx.shader) return
+        const o = Object.assign({}, contentObs())
+        o[prop] = session.getValue()
+        ctx.shader.update(o.vertexShader, o.fragmentShader)
+        console.log('shader type', ctx.shader.type)
+      }
+
+      session.on('change', Changes(session, updateShader, 600, (err, src) => {
+        syntaxError.set(err && err.message)
+        if (!err) {
+          const content = Object.assign({}, contentObs())
+          content[prop] = src
+          contentObs.set(content)
+          draw(ctx)
+        }
+      }))
+      let tab
+      tab = h('button', {
+        classList: computed(activeTab, at => at == tab ? ['active'] : []),
+        'ev-click': e => {
+          tab.activate()
+        }
+      }, title)
+      tab.activate = function activate() {
+        activeTab.set(tab)
+        editor.setSession(session)
+      }
+      return tab
+    }
+  }
+
   
   function makeCanvas(kv, ctx) {
     const canvas = h('canvas', {
@@ -70,8 +119,8 @@ module.exports = function RenderShader(opts) {
   function createNode(kv, ctx) {
     const content = kv.value && kv.value.content || {}
     if (!content) return
-    const {fragmentShader} = content
-    if (!fragmentShader) return
+    const {fragmentShader, vertexShader} = content
+    if (!fragmentShader || !vertexShader) return
 
     ctx.shader = createShader(ctx.gl, vertexShader, fragmentShader)
     console.log('shader type', ctx.shader.type)
@@ -103,26 +152,6 @@ module.exports = function RenderShader(opts) {
     if (ctx.where == 'editor') {
       //const code = content.fragmentShader
       const contentObs = ctx.contentObs || Value(content)
-      const syntaxError = Value('')
-      const fragSrc = computed(contentObs, c => c.fragmentShader)
-      const pre = h('pre.editor', fragSrc())
-
-      const editor = ace.edit(pre)
-      if (opts.ace_theme) editor.setTheme(opts.ace_theme)
-      editor.session.setMode('ace/mode/glsl')
-
-      editor.session.on('change', Changes(editor.session, ctx, 600, (err, src) => {
-        syntaxError.set(err && err.message)
-        if (err) {
-        }
-        if (!err) {
-          const content = Object.assign({}, contentObs())
-          content.fragmentShader = src
-          contentObs.set(content)
-          draw(ctx)
-        }
-      }))
-
       return h('.tre-glsl-editor', [
         h('.canvas-container', {
           style: {
@@ -130,10 +159,7 @@ module.exports = function RenderShader(opts) {
             height: '120px'
           }
         }, makeCanvas(kv, ctx)),
-        h('div', [
-          pre,
-          syntaxError
-        ])
+        h('div', makeEditor(contentObs, draw, ctx))
       ])
     }
     return makeCanvas(kv, ctx)
@@ -142,15 +168,11 @@ module.exports = function RenderShader(opts) {
 
 // -- utils
 
-function Changes(session, ctx, ms, cb) {
+function Changes(session, updateShader, ms, cb) {
   return debounce(ms, ()=>{
     const v = session.getValue() 
     try {
-      if (ctx.shader) {
-        console.log('Updating shader ...')
-        ctx.shader.update(vertexShader, v)
-        console.log('... done')
-      }
+      updateShader()
     } catch(err) {
       if (err.constructor.name == 'GLError') {
         console.error('... failed', err.rawError)
